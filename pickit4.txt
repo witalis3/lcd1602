@@ -1,0 +1,7 @@
+podłączenie:
+nóżki PicKita:
+1 - 1 nóżka procesora
+2 - VDD (+5V)
+3 - GND
+4 - 40 noga procesora PGD
+5 - 39 noga procesora PGC
