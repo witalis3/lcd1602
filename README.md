@@ -1,2 +1,2 @@
 # lcd1602
-sterownik PA lampowego
+sterownik PA lampowego na bazie PIC i LCD1602
