@@ -1,0 +1,16 @@
+DataPort Codes 
+
+Band 	Code
+Line 	dcba
+Pin 	7654
+
+160m 	0001
+80m 	0010
+40m 	0011
+30m 	0100
+20m 	0101
+17m 	0110
+15m 	0111
+12m 	1000
+10m 	1001
+6m 		1010
