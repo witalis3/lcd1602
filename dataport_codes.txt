@@ -1,3 +1,13 @@
+zworki 
+Z1 zworka biała; nóżka 6 procesora
+Z2 zworka czarna; nóżka 27 procesora
+obie zwarte -> manual
+Z2 rozwarta -> data port
+jest kod od 21MHz
+
+dioda testowa biały do masy czarny do różowego kabelka w złączu od PicKita (+5V)
+
+
 DataPort Codes 
 
 Band 	Code

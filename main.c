@@ -260,7 +260,7 @@ const char Mes1[] = "POWER=    W SWR= .  ";
 const char Mes2[] = "BAND    MHz Ua=    V";
 const char Mes3[] = "Is=    mA  Ia=    mA";
 const char Mes4[] = "   PA  controller";  
-const char Mes5[] = "    Beta Ver 1.03";
+const char Mes5[] = "    Beta Ver 1.04";
 const char Mes6[] = "    Warming tube  ";
 const char Mes7[] = "  Switching on  Ua  ";
 const char Mes8[] = "    in       sec    ";
@@ -562,7 +562,11 @@ void DataPortControl()
     }
     if (band <= _6metr)
     {
-        SelectBand();
+        if (band != OldBand)    // zmiana pasma -> przełączenie przekaźników tylko po zmianie pasma
+        {
+            SelectBand();
+            OldBand = band;
+        }
     }
 }
 void KeyPadControl()
@@ -649,8 +653,6 @@ void KeyPadControl()
 void ChangeBand(void)
 {
     // stan aktywny wysoki (brak zworki)
-    // brak zworek Z1 i Z2 -> sterowanie ręczne zmiany pasma (z przycisków)
-    
     // Z1: RA4 ICOM port; nóżka 6
     // Z2: RD4 DATA port; nóżka 27
     
@@ -666,6 +668,7 @@ void ChangeBand(void)
         unsigned char DataPortCode = PORTD & 0b00001111;
         DataPortControl();
     }
+    // zwarte zworki Z1 i Z2 -> sterowanie ręczne zmiany pasma (z przycisków)
     if (RA4 == 0 && RD4 == 0)
     {
         KeyPadControl();
