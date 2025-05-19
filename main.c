@@ -33,7 +33,7 @@
 //#define PASMA
 
 #include <xc.h>
-#include "defines.h"
+
 #define _XTAL_FREQ 16000000
 #include <string.h>
 #include <stdio.h>
@@ -355,43 +355,8 @@ unsigned char band;
  */
 unsigned char Auto = 0;
 
-static volatile uint8_t tick_count =0;
-
-void MAIN_Init(void)
-{
-	// ToDo sprawdzić, czy to ustawi Timer2 dla PICF16F877 (poniżej jest kod dla PIC16F1938)
- //Timer 2
- //set to 1ms = 1000Hz
- //Fosc/4 = 4Mhz, Prescaler 1:16, Comp value 250,  Postscaler 1:1
-
- T2CONbits.T2CKPS = 2; //Prescaler 1:16
- T2CONbits.T2OUTPS = 0; //Postscaler 1:1
- PR2 = 250;            //Periode Register
-
- PIE1bits.TMR2IE = 1;   //Timer 2 interrupt enable
- INTCONbits.PEIE = 1; // Enable Perpherial Interrupt
-
- T2CONbits.TMR2ON = 1;  //Timer on
- INTCONbits.GIE = 1; // Enable Global Interrupt
-}
-
-void __interrupt() myIsr(void) {
-	//ToDo sprawdzić, czy to jest Timer2 w tym procesorze (poniżej jest kod dla PIC16F1938)
-	//Timer 2 interrupt 1000Hz
-	if (PIR1bits.TMR2IF) {
-		PIR1bits.TMR2IF = 0;
-		tick_count++;
-	}
-	return;
-}
-
-
 void main(void) {
-	static uint8_t tick_old = 0;
-	static uint8_t tick_10ms = 0;
 	unsigned char i;
-
-	MAIN_Init();
 
     // ustawienie przerwania dla zegara sytemowego
     OPTION_REG = (1<<SBIT_PS2);  // Timer0 with external freq and 32 as prescalar
@@ -402,8 +367,6 @@ void main(void) {
     // IRQ end
     ADC_Init();                   //Initialize ADC
     lcd_init();
-
-    BUTTON_Init();
 
     TRISE2 = 0;     // RE2 output
     RE2 = 0;        // port sygnalizacji przekroczenia SWR (powyżej 3))
@@ -506,36 +469,11 @@ void main(void) {
     // loop - pętla główna
     while (1) 
     {
-        if(tick_old != tick_count)
-        {
-          tick_old++;
-          tick_10ms++;
-          //1ms
-          //ADC_Run();
           PrintResults();
     #ifdef DEBUG_UART
           UART_Run();
     #endif
-        }
-        //10x 1ms = 10ms
-        if(tick_10ms == 10)
-        {
-          tick_10ms = 0;
-          //10ms
-          BUTTON_Run();
-          //MENU_Run();
-        }
-        if (BUTTON_Auto_count == 1)
-        {
-        	if (Auto == 1)
-        	{
-        		Auto = 0;
-        	}
-        	else
-        	{
-        		Auto = 1;
-        	}
-        }
+          // ToDo obsługa klawisza Auto/MANUAL
         ChangeBand();
 		check_for_dirty_configuration();
     }
