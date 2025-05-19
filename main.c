@@ -3,17 +3,28 @@
  * Author: witek
  *
  * Created on 29 września 2019, 10:34
+ * Na podstawie ??
  * 20191215 v.1.01
  *  - nowe ustawienia początkowe
  *  - poprawienie prawdopodobnego błędu band--
  * 20230410 v.1.0.3
  *  - zamiast 3,5 CW jest 5MHz
+ * 20250515 v.1.1.0
+ *  - obsługa Git z STMCubeIDE na workspace_CubeIDE
+ *  - edycja również w STM32CubeIde!
+ *  	- kompilacja i programowanie w MPLAB X IDE
+ *  - Z2 -> przycisk zmieniający MANUAL/AUTO
+ *      - sygnalizacja na wyświetlaczu zamiast Ua
+ *  - nowy branch dla poniższych założeń:
+ *      - tylko pomiar mocy oraz SWR
+ *          - wartości liczbowe oraz linijki
  * ---------
- * Z1: RA4 ICOM port; nóżka 6
- * Z2: RD4 DATA port; nóżka 27
+ * zworki:
+ *  Z1: RA4 ICOM port; nóżka 6
+ *  Z2: RD4 DATA port; nóżka 27
  *   
- * Z3: RD5 "5MHz"; nóżka 28
- * Z4: RD7 włączanie dziesiątego pasma; nóżka 30
+ *  Z3: RD5 "5MHz"; nóżka 28
+ *  Z4: RD7 włączanie dziesiątego pasma; nóżka 30
  *
  * 
  * 
@@ -22,6 +33,7 @@
 //#define PASMA
 
 #include <xc.h>
+#include "defines.h"
 #define _XTAL_FREQ 16000000
 #include <string.h>
 #include <stdio.h>
@@ -120,15 +132,10 @@ _6metr      // pasmo 50MHz lub 5 MHz w zależności od portu RD5 (Z3)(28))
 #define EnableBand(x)   BandPort |= x;
 
 //.............................................................
-
 unsigned int U_forward;
 unsigned int U_reflect;
 unsigned int U_plate;
 unsigned int I_plate;
-
-
-
-
 
 unsigned long x;
 unsigned long PWRin;
@@ -166,7 +173,7 @@ void __interrupt(high_priority) tcInt(void)
     {
         czas++;   // czas upływa co 1ms od startu systemu
         TMR0 = 132;     /*Load the timer Value, (Note: Timervalue is 101 instaed of 100 as the
-                          TImer0 needs two instruction Cycles to start incrementing TMR0 */
+                          Timer0 needs two instruction Cycles to start incrementing TMR0 */
         TMR0IF=0;       // Clear timer interrupt flag
     } 
 }
@@ -257,16 +264,14 @@ unsigned int koeff = 10;
 //===================================================================
 const char Mes0[] = "      Welcome!      ";
 const char Mes1[] = "POWER=    W SWR= .  ";
-const char Mes2[] = "BAND    MHz Ua=    V";
-const char Mes3[] = "Is=    mA  Ia=    mA";
-const char Mes4[] = "   PA  controller";  
-const char Mes5[] = "    Beta Ver 1.04";
+const char Mes2[] = "BAND    MHz         ";
+const char Mes3[] = "                    ";
+const char Mes4[] = "  ATU  controller";  
+const char Mes5[] = "        Ver 1.1.0";
 const char Mes6[] = "    Warming tube  ";
 const char Mes7[] = "  Switching on  Ua  ";
 const char Mes8[] = "    in       sec    ";
 const char Mes9[] = " Anod tension is ON ";
-
-
 
 PGM_P string_table[] = 
 {
@@ -337,18 +342,57 @@ char letter[8];
 #endif
 */
 
-
 #define _2004    //для компиляции для 20х4 символов
 //#define _1604  //для компиляции для 16х4 символов
 
-//#define  Z_line  50
+// a - przelicznik dla funkcji PrintPower()
 #define  a  128
 
 unsigned char band;
+/*
+ * Auto = 0 - ręczna zmiana pasma (przyciskami)
+ * Auto = 1 - zmiana według kodu z BadData lub poziomu Icom (w zależności od zworki Z1)
+ */
+unsigned char Auto = 0;
 
-void main(void) 
+static volatile uint8_t tick_count =0;
+
+void MAIN_Init(void)
 {
-    unsigned char i;
+	// ToDo sprawdzić, czy to ustawi Timer2 dla PICF16F877 (poniżej jest kod dla PIC16F1938)
+ //Timer 2
+ //set to 1ms = 1000Hz
+ //Fosc/4 = 4Mhz, Prescaler 1:16, Comp value 250,  Postscaler 1:1
+
+ T2CONbits.T2CKPS = 2; //Prescaler 1:16
+ T2CONbits.T2OUTPS = 0; //Postscaler 1:1
+ PR2 = 250;            //Periode Register
+
+ PIE1bits.TMR2IE = 1;   //Timer 2 interrupt enable
+ INTCONbits.PEIE = 1; // Enable Perpherial Interrupt
+
+ T2CONbits.TMR2ON = 1;  //Timer on
+ INTCONbits.GIE = 1; // Enable Global Interrupt
+}
+
+void __interrupt() myIsr(void) {
+	//ToDo sprawdzić, czy to jest Timer2 w tym procesorze (poniżej jest kod dla PIC16F1938)
+	//Timer 2 interrupt 1000Hz
+	if (PIR1bits.TMR2IF) {
+		PIR1bits.TMR2IF = 0;
+		tick_count++;
+	}
+	return;
+}
+
+
+void main(void) {
+	static uint8_t tick_old = 0;
+	static uint8_t tick_10ms = 0;
+	unsigned char i;
+
+	MAIN_Init();
+
     // ustawienie przerwania dla zegara sytemowego
     OPTION_REG = (1<<SBIT_PS2);  // Timer0 with external freq and 32 as prescalar
     TMR0=100;       // Load the time value for 1ms delay
@@ -358,6 +402,9 @@ void main(void)
     // IRQ end
     ADC_Init();                   //Initialize ADC
     lcd_init();
+
+    BUTTON_Init();
+
     TRISE2 = 0;     // RE2 output
     RE2 = 0;        // port sygnalizacji przekroczenia SWR (powyżej 3))
     for(i=0;i<8;i++)
@@ -417,6 +464,16 @@ void main(void)
     {
             config_dirty = 0;
     }
+    Auto = EEPROM_ReadByte(1);
+    if (Auto > 1)
+    {
+    	Auto = 0;
+    	config_dirty = 1;
+    }
+    else
+    {
+    	config_dirty = 0;
+    }
     OldBand = band;
     EnableBand(OldBand);
     privetstvie();
@@ -446,13 +503,40 @@ void main(void)
     DataPort_DDR = 1;       // drugi jumper jako wejście
     PORTDbits.RD5 = 1;      // trzeci jumper jako wejście - wybór pomiędzy 50MHz a 5MHz
     TRISD7 = 1;         // wejście włączające dziesiąte pasmo
+    // loop - pętla główna
     while (1) 
     {
-        PrintResults();
-        if (ADC_READ(GridCurrent) <= 3)   //если подана раскачка блокируется переключение контуров ВКС; blokada przełączania pasm przy wysterowaniu
+        if(tick_old != tick_count)
         {
-            ChangeBand();
+          tick_old++;
+          tick_10ms++;
+          //1ms
+          //ADC_Run();
+          PrintResults();
+    #ifdef DEBUG_UART
+          UART_Run();
+    #endif
         }
+        //10x 1ms = 10ms
+        if(tick_10ms == 10)
+        {
+          tick_10ms = 0;
+          //10ms
+          BUTTON_Run();
+          //MENU_Run();
+        }
+        if (BUTTON_Auto_count == 1)
+        {
+        	if (Auto == 1)
+        	{
+        		Auto = 0;
+        	}
+        	else
+        	{
+        		Auto = 1;
+        	}
+        }
+        ChangeBand();
 		check_for_dirty_configuration();
     }
 }
@@ -466,10 +550,10 @@ void privetstvie(void)
     strcpy(buffer, string_table[0]);
     lcd_gotoxy(0, 0);
     lcd_puts(buffer);
-    strcpy(buffer, string_table[4]); //"PA controller-1500W"
+    strcpy(buffer, string_table[4]); //"np. ATU controller"
     lcd_gotoxy(0, 1);
     lcd_puts(buffer);
-    strcpy(buffer, (string_table[5])); //"    Beta Ver 1.03"
+    strcpy(buffer, (string_table[5])); //"    np. Beta Ver 1.03"
     lcd_gotoxy(0, 2);
     lcd_puts(buffer);
     
@@ -480,7 +564,7 @@ void privetstvie(void)
 #ifndef DEBUGGING
         __delay_ms(0xFF);
 #else
-        _delay_ms(0x30); //��� �������
+        _delay_ms(0x30);
 #endif
     }
 }
@@ -488,15 +572,17 @@ void privetstvie(void)
 void screen1() 
 {
 
-    strcpy(buffer, string_table[1]); //"P=    W     SWR= .  "
+    strcpy(buffer, string_table[1]); // lierwsza linijka na moc i SWR liczbowo
     lcd_gotoxy(0, 0);
     lcd_puts(buffer);
     lcd_gotoxy(0, 1);
-    strcpy(buffer, string_table[2]); //"Fr=   mHz   U=     v"
+    strcpy(buffer, string_table[2]); // druga linijka na pasmo oraz wskaźnik Auto/Manual
     lcd_puts(buffer);
+    /*
     lcd_gotoxy(0, 2);
     strcpy(buffer, string_table[3]); //"T=    C     I=    mA"
     lcd_puts(buffer);
+    */
 }
 
 void SelectBand() 
@@ -658,7 +744,24 @@ void ChangeBand(void)
     
     // Z3: RD5 "5MHz"; Z3; nóżka 28
     // Z4: RD7 włączanie dziesiątego pasma; nóżka 30
-    
+	if (Auto)
+	{
+		if (RA4 == 1)
+		{
+			icom();
+		}
+		else
+		{
+	        unsigned char DataPortCode = PORTD & 0b00001111;
+	        DataPortControl();
+		}
+	}
+	else
+	{
+        KeyPadControl();
+	}
+
+    /*
     if (RA4 == 1 && RD4 == 0)
     {
         icom();
@@ -673,17 +776,18 @@ void ChangeBand(void)
     {
         KeyPadControl();
     }
+    */
 }
 
 void PrintResults(void)
 {    
+	/*
     U_plate=ADC_READ(PlateVoltage); //измерение анодного напряжения
     PrintPlateVoltage(U_plate);
-    //
     I_plate=ADC_READ(PlateCurrent); //измерение анодного тока
     PrintPlateCurrent(I_plate);
     PrintGridCurrent(ADC_READ(GridCurrent));   // prąd siatki pierwszej
-    //
+    */
     U_forward = ADC_READ(FEW);
     U_reflect = ADC_READ(REW);
     PrintSwr();
@@ -1011,6 +1115,7 @@ void check_for_dirty_configuration()
 		{
 			//EEPROM_WriteByte(0, band);
             eeprom_write(0, band);
+            eeprom_write(1, Auto);
         	config_dirty = 0;
 #ifdef PASMA
             zapis = ~zapis;

@@ -1,3 +1,5 @@
+Propgramować przy zasilaniu z PicKita.
+
 podłączenie:
 nóżki PicKita:
 1 - 1 nóżka procesora
