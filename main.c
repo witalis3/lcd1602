@@ -21,7 +21,7 @@
  * ---------
  * zworki:
  *  Z1: RA4 ICOM port; nóżka 6
- *  Z2: RD4 DATA port; nóżka 27
+ *  Z2: RD4 DATA port; nóżka 27		// przycisk Auto/Manual
  *   
  *  Z3: RD5 "5MHz"; nóżka 28
  *  Z4: RD7 włączanie dziesiątego pasma; nóżka 30
@@ -64,9 +64,9 @@
 
 #define ButtonPort      PORTC
 #define ButtonPortDDR   TRISC
-#define Button1         RC7
-#define Button2         RC6
-//#define Button3         PIND6
+#define Button1         RC7		// UP
+#define Button2         RC6		// DOWN
+#define Auto_Man_Button	RD4		// przycisk Auto/Manual
 #define ButtonPinPort   PORTC
 
 
@@ -227,6 +227,7 @@ void icom(void);
 void SelectBand();
 void PrintValue4(unsigned int value,unsigned char pos,unsigned char line);
 void ChangeBand(void);
+void AutoManual(void);
 void screen1(void);
 void PowerScale(void);
 void mask(unsigned char UpLine,unsigned char LowLine);
@@ -474,6 +475,7 @@ void main(void) {
           UART_Run();
     #endif
           // ToDo obsługa klawisza Auto/MANUAL
+        AutoManual();
         ChangeBand();
 		check_for_dirty_configuration();
     }
@@ -535,7 +537,7 @@ void SelectBand()
         strcpy(buffer, freq_table[band]);
     }
     lcd_gotoxy(5, 1);
-    lcd_puts(buffer); //Пишем на дисплей диапазон     
+    lcd_puts(buffer); //Пишем на дисплей диапазон
     BandPort &= ~(_A + _B + _C + _D); //сброс всех диапазонов    
     EnableBand(band);
 	config_dirty = 1;
@@ -590,6 +592,42 @@ void DataPortControl()
         {
             SelectBand();
             OldBand = band;
+        }
+    }
+}
+void AutoManual()
+{
+    unsigned char i;
+    if (Auto_Man_Button == 0)
+    {
+        for (i = 0; i < 200; i++)
+        {
+#ifndef DEBUGGING
+            __delay_ms(10);
+#else
+            __delay_us(255);
+#endif
+            if (Auto_Man_Button)
+                break;
+        }
+        if (i > 2) // zabezpieczenie od drgań styku
+        {
+        	if (Auto == 1)
+        	{
+        		Auto = 0;
+        	}
+        	else
+        	{
+        		Auto = 1;
+        	}
+#ifdef DEBUGGING
+            __delay_ms(60);
+#else
+            for (i = 0; i < 4; i++)
+            {
+                __delay_ms(0xFF);
+            }
+#endif
         }
     }
 }
@@ -678,11 +716,13 @@ void ChangeBand(void)
 {
     // stan aktywny wysoki (brak zworki)
     // Z1: RA4 ICOM port; nóżka 6
-    // Z2: RD4 DATA port; nóżka 27
+    // Z2: RD4 Auto/Manual; nóżka 27
     
     // Z3: RD5 "5MHz"; Z3; nóżka 28
     // Z4: RD7 włączanie dziesiątego pasma; nóżka 30
-	if (Auto)
+
+	lcd_gotoxy(12, 1);	// Auto/Manual
+	if (Auto == 1)
 	{
 		if (RA4 == 1)
 		{
@@ -693,9 +733,13 @@ void ChangeBand(void)
 	        unsigned char DataPortCode = PORTD & 0b00001111;
 	        DataPortControl();
 		}
+		strcpy(buffer, "  Auto");
+		lcd_puts(buffer);
 	}
 	else
 	{
+		strcpy(buffer, "Manual");
+    	lcd_puts(buffer);
         KeyPadControl();
 	}
 
