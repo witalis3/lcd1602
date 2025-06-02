@@ -9,11 +9,13 @@
  * kompilacja oraz wgrywanie w MPLAB X IDE np. 6.25
  * 		- zasilanie z PICkit 4 podczas programowania
  * 	ToDo ;-)
+ * 	----------------------- branch master
  * 20191215 v.1.01
  *  - nowe ustawienia początkowe
  *  - poprawienie prawdopodobnego błędu band--
  * 20230410 v.1.0.3
  *  - zamiast 3,5 CW jest 5MHz
+ *  ----------------------- branch PWR_SWR:
  * 20250515 v.1.1.0
  *  - obsługa Git z STMCubeIDE na workspace_CubeIDE
  *  - edycja również w STM32CubeIde!
@@ -22,10 +24,10 @@
  *      - sygnalizacja stanu na wyświetlaczu zamiast Ua
  *  - nowy branch dla poniższych założeń (PWR_SWR):
  *      - tylko pomiar mocy oraz SWR
- *          - wartości liczbowe oraz dwie linijki: dla mocy i SWR
+ *          - wartości liczbowe PWR i SWR oraz dwie linijki: dla mocy i SWR
  * 20250602 v.1.1.1
- * 	- opóźnienie 3s w zmianie kodu na wyjściu Band Data, żeby móc spokojnie wybrać pasmo i dopiero wtedy np. przełączanie przekaźników
- * 	 	i ewentulanie włączenie silników krokowych
+ * 	- opóźnienie 2s w zmianie kodu na wyjściu Band Data, żeby móc spokojnie wybrać pasmo i dopiero wtedy np. przełączanie przekaźników
+ * 	 	i ewentulanie włączenie silników krokowych; opóźnienie zarówno przy ręcznej zmianie pasma jak i przy sterowaniu z Icom czy Band Data
  * ---------
  * zworki:
  *  Z1: RA4 ICOM port; nóżka 6
@@ -159,6 +161,7 @@ unsigned char OldBand;
 
 unsigned char config_dirty = 0;
 unsigned long brudny_czas = 0;		// czas ostatniego żądania zapisu do EEPROM
+unsigned char ZmianaPasma = 0;		// wskaźnik do zmiany pasma
 
 void KeyPadControl();
 void DataPortControl();
@@ -169,7 +172,7 @@ void lcd_data(char data);
 void CreateCustomCharacter (unsigned char *Pattern, const char Location);
 
 // co nieco do obsługi pamięci pasma:
-#define ZAPIS_CO	2000 		// co jaki czas zapis do EEPROM - minimum
+#define ZAPIS_CO	2000 		// co jaki czas zapis do EEPROM [ms]
 void check_for_dirty_configuration();
 unsigned long czas = 0;
 #define SBIT_PS2  2
@@ -231,6 +234,7 @@ void PrintGridCurrent(unsigned int is_dat);
 
 void PrintResults(void);
 void icom(void);
+void ZmienPasmo(void);
 void SelectBand();
 void PrintValue4(unsigned int value,unsigned char pos,unsigned char line);
 void ChangeBand(void);
@@ -437,6 +441,7 @@ void main(void) {
     {
             config_dirty = 0;
     }
+
     Auto = EEPROM_ReadByte(1);
     if (Auto > 1)
     {
@@ -447,10 +452,35 @@ void main(void) {
     {
     	config_dirty = 0;
     }
+
     OldBand = band;
     EnableBand(OldBand);
     privetstvie();
     screen1();
+
+    lcd_gotoxy(12, 1);	// Auto/Manual
+    if (Auto == 1)
+    {
+    	strcpy(buffer, "  Auto");
+    	lcd_puts(buffer);
+    }
+    else
+    {
+		strcpy(buffer, "Manual");
+    	lcd_puts(buffer);
+    }
+
+    // RD5 = 0 -> pasmo 5MHz zamiast 50MHz
+    if (band == _6metr && RD5 == 0)
+    {
+        strcpy(buffer, freq_table[band + 1]);
+    }
+    else
+    {
+        strcpy(buffer, freq_table[band]);
+    }
+    lcd_gotoxy(5, 1);
+    lcd_puts(buffer); //Пишем на дисплей диапазон
     SelectBand();
     //================================================
     //инициализация кнопок переключателя диапазонов
@@ -483,7 +513,6 @@ void main(void) {
     #ifdef DEBUG_UART
           UART_Run();
     #endif
-          // ToDo obsługa klawisza Auto/MANUAL
         AutoManual();
         ChangeBand();
 		check_for_dirty_configuration();
@@ -531,13 +560,12 @@ void screen1()
     strcpy(buffer, "                 ");	// trzecia linijka pusta (moc)
     lcd_puts(buffer);
 }
-
-void SelectBand() 
+void ZmienPasmo(void)
 {
     // RD5 = 0 -> pasmo 5MHz zamiast 50MHz
     if (band == _6metr && RD5 == 0)
     {
-        strcpy(buffer, freq_table[band + 1]);            
+        strcpy(buffer, freq_table[band + 1]);
     }
     else
     {
@@ -545,10 +573,14 @@ void SelectBand()
     }
     lcd_gotoxy(5, 1);
     lcd_puts(buffer); //Пишем на дисплей диапазон
-    BandPort &= ~(_A + _B + _C + _D); //сброс всех диапазонов    
-    EnableBand(band);
 	config_dirty = 1;
 	brudny_czas = czas;
+	ZmianaPasma = 1;
+}
+void SelectBand()
+{
+    BandPort &= ~(_A + _B + _C + _D); //сброс всех диапазонов
+    EnableBand(band);
 }
 void DataPortControl()
 {
@@ -597,7 +629,7 @@ void DataPortControl()
     {
         if (band != OldBand)    // zmiana pasma -> przełączenie przekaźników tylko po zmianie pasma
         {
-            SelectBand();
+            ZmienPasmo();
             OldBand = band;
         }
     }
@@ -619,14 +651,21 @@ void AutoManual()
         }
         if (i > 2) // zabezpieczenie od drgań styku
         {
+        	lcd_gotoxy(12, 1);	// Auto/Manual
         	if (Auto == 1)
         	{
         		Auto = 0;
+        		strcpy(buffer, "Manual");
+            	lcd_puts(buffer);
         	}
         	else
         	{
         		Auto = 1;
+        		strcpy(buffer, "  Auto");
+        		lcd_puts(buffer);
         	}
+        	config_dirty = 1;
+        	brudny_czas = czas;
 #ifdef DEBUGGING
             __delay_ms(60);
 #else
@@ -669,7 +708,7 @@ void KeyPadControl()
                 if (band < _6metr) band++;
                 else band = _160metr;
             }
-            SelectBand();
+            ZmienPasmo();
             OldBand = band;
 #ifdef DEBUGGING
             __delay_ms(60);
@@ -707,7 +746,7 @@ void KeyPadControl()
                 if (band > _160metr) band--;
                 else band = _6metr;
             }
-            SelectBand();
+            ZmienPasmo();
             OldBand = band;
 #ifdef DEBUGGING
             _delay_ms(60);
@@ -723,12 +762,9 @@ void ChangeBand(void)
 {
     // stan aktywny wysoki (brak zworki)
     // Z1: RA4 ICOM port; nóżka 6
-    // Z2: RD4 Auto/Manual; nóżka 27
-    
+    // Z2: RD4 przycisk Auto/Manual; nóżka 27
     // Z3: RD5 "5MHz"; Z3; nóżka 28
     // Z4: RD7 włączanie dziesiątego pasma; nóżka 30
-
-	lcd_gotoxy(12, 1);	// Auto/Manual
 	if (Auto == 1)
 	{
 		if (RA4 == 1)
@@ -740,32 +776,11 @@ void ChangeBand(void)
 	        unsigned char DataPortCode = PORTD & 0b00001111;
 	        DataPortControl();
 		}
-		strcpy(buffer, "  Auto");
-		lcd_puts(buffer);
 	}
 	else
 	{
-		strcpy(buffer, "Manual");
-    	lcd_puts(buffer);
         KeyPadControl();
 	}
-
-    /*
-    if (RA4 == 1 && RD4 == 0)
-    {
-        icom();
-    }
-    if (RA4 == 0 && RD4 == 1)
-    {
-        unsigned char DataPortCode = PORTD & 0b00001111;
-        DataPortControl();
-    }
-    // zwarte zworki Z1 i Z2 -> sterowanie ręczne zmiany pasma (z przycisków)
-    if (RA4 == 0 && RD4 == 0)
-    {
-        KeyPadControl();
-    }
-    */
 }
 
 void PrintResults(void)
@@ -1142,7 +1157,11 @@ void icom(void)
     else
         band = _6metr;
 #endif
-    SelectBand();
+    if (band != OldBand)    // zmiana pasma -> przełączenie przekaźników tylko po zmianie pasma
+    {
+        ZmienPasmo();
+        OldBand = band;
+    }
 }
 void check_for_dirty_configuration()
 {
@@ -1153,6 +1172,11 @@ void check_for_dirty_configuration()
 			//EEPROM_WriteByte(0, band);
             eeprom_write(0, band);
             eeprom_write(1, Auto);
+            if (ZmianaPasma == 1)	// zmiana pasma z opóźnieniem ZAPIS_CO (2s)
+            {
+            	SelectBand();
+                ZmianaPasma = 0;
+            }
         	config_dirty = 0;
 #ifdef PASMA
             zapis = ~zapis;
