@@ -4,6 +4,11 @@
  *
  * Created on 29 września 2019, 10:34
  * Na podstawie ??
+ * procesor PIC16F877A
+ * edycja w STM32CubeIDE
+ * kompilacja oraz wgrywanie w MPLAB X IDE np. 6.25
+ * 		- zasilanie z PICkit 4 podczas programowania
+ * 	ToDo ;-)
  * 20191215 v.1.01
  *  - nowe ustawienia początkowe
  *  - poprawienie prawdopodobnego błędu band--
@@ -14,19 +19,21 @@
  *  - edycja również w STM32CubeIde!
  *  	- kompilacja i programowanie w MPLAB X IDE
  *  - Z2 -> przycisk zmieniający MANUAL/AUTO
- *      - sygnalizacja na wyświetlaczu zamiast Ua
- *  - nowy branch dla poniższych założeń:
+ *      - sygnalizacja stanu na wyświetlaczu zamiast Ua
+ *  - nowy branch dla poniższych założeń (PWR_SWR):
  *      - tylko pomiar mocy oraz SWR
- *          - wartości liczbowe oraz linijki
+ *          - wartości liczbowe oraz dwie linijki: dla mocy i SWR
+ * 20250602 v.1.1.1
+ * 	- opóźnienie 3s w zmianie kodu na wyjściu Band Data, żeby móc spokojnie wybrać pasmo i dopiero wtedy np. przełączanie przekaźników
+ * 	 	i ewentulanie włączenie silników krokowych
  * ---------
  * zworki:
  *  Z1: RA4 ICOM port; nóżka 6
- *  Z2: RD4 DATA port; nóżka 27		// przycisk Auto/Manual
- *   
  *  Z3: RD5 "5MHz"; nóżka 28
  *  Z4: RD7 włączanie dziesiątego pasma; nóżka 30
  *
- * 
+ *	przyciski:
+ *  Z2: RD4 DATA port; nóżka 27		// przycisk Auto/Manual
  * 
  */
 
@@ -230,6 +237,7 @@ void ChangeBand(void);
 void AutoManual(void);
 void screen1(void);
 void PowerScale(void);
+void SWRScale(void);
 void mask(unsigned char UpLine,unsigned char LowLine);
 void SynthesChar(void);
 void ShowThermometr(void);
@@ -254,6 +262,7 @@ void ADC_Init();
                                             //для 1500 вт равен примерно 10
 
 unsigned int MaxPower = 3000;
+unsigned int MaxSWR = 5000;
 unsigned long MaxU = 3800;
 unsigned long MaxI = 2000;
 unsigned long MaxIs = 1000;
@@ -268,7 +277,7 @@ const char Mes1[] = "POWER=    W SWR= .  ";
 const char Mes2[] = "BAND    MHz         ";
 const char Mes3[] = "                    ";
 const char Mes4[] = "  ATU  controller";  
-const char Mes5[] = "        Ver 1.1.0";
+const char Mes5[] = "        Ver 1.1.1";
 const char Mes6[] = "    Warming tube  ";
 const char Mes7[] = "  Switching on  Ua  ";
 const char Mes8[] = "    in       sec    ";
@@ -518,11 +527,9 @@ void screen1()
     lcd_gotoxy(0, 1);
     strcpy(buffer, string_table[2]); // druga linijka na pasmo oraz wskaźnik Auto/Manual
     lcd_puts(buffer);
-    /*
     lcd_gotoxy(0, 2);
-    strcpy(buffer, string_table[3]); //"T=    C     I=    mA"
+    strcpy(buffer, "                 ");	// trzecia linijka pusta (moc)
     lcd_puts(buffer);
-    */
 }
 
 void SelectBand() 
@@ -775,6 +782,7 @@ void PrintResults(void)
     PrintSwr();
     PrintPower();
     PowerScale();
+    SWRScale();
 }
 unsigned int ADC_READ(unsigned char channel)
 {
@@ -942,6 +950,53 @@ void PowerScale()
         i++;
     }
     for (; i < MaxSell; i++) 
+    {
+        buffer[i] = 0x20; //пробел
+    }
+    lcd_gotoxy(0, 2);
+    lcd_puts(buffer);
+}
+void SWRScale()
+{
+#ifdef _1602
+#define MaxSell 16
+#endif
+
+#ifdef _1604
+#define MaxSell 16
+#endif
+
+#ifdef _2004
+#define MaxSell 20
+#endif
+
+    unsigned int SWRkoef = ((MaxSWR - 1000) / (3 * MaxSell));
+    unsigned int length, sell;
+    unsigned char i = 0;
+    unsigned char ost;
+    length = (swr - 1000) / SWRkoef; //определение количества палок в грудуснике
+    sell = length / 3; //вычисление количества знакомест под 3-х палочный знак
+    ost = length % 3; //остаток равен скан-коду(адресу) последнего выводимого символа из CGRAM
+    if (sell >= 1)
+    {
+        for (i = 0; i < sell; i++)
+        {
+            buffer[i] = 1; //сначала выводим по три полоски
+        }
+    }
+    if (ost != 0)
+    {
+        if (ost == 1)
+        {
+            buffer[i] = 3; //одна верхняя полоска
+        }
+        if (ost == 2)
+        {
+            buffer[i] = 2; //две верхние полоски
+        }
+        i++;
+    }
+    for (; i < MaxSell; i++)
     {
         buffer[i] = 0x20; //пробел
     }
