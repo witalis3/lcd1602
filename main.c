@@ -849,6 +849,7 @@ void PrintSwr(void)
         Lcd_Chr(0, 18, 0x20);
         Lcd_Chr(0, 19, 0x20);
         RE2 = 0;
+        swr = 1000;
     }
     else
     {
