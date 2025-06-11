@@ -377,7 +377,7 @@ void writeCGRAM(unsigned char addr, unsigned char data)
 //--------------------------------------------------------------------------------
 void lcd_init(void)
 {
-// ToDo LcdPortDDR |= _BV(RS)+_BV(RW)+_BV(E)+_BV(D4)+_BV(D5)+_BV(D6)+_BV(D7);
+// LcdPortDDR |= _BV(RS)+_BV(RW)+_BV(E)+_BV(D4)+_BV(D5)+_BV(D6)+_BV(D7);
     TRISB = 0;
 //0xff;// назначаем все линии порта B на выход
 CLR_ALL();

@@ -8,7 +8,6 @@
  * edycja w STM32CubeIDE
  * kompilacja oraz wgrywanie w MPLAB X IDE np. 6.25
  * 		- zasilanie z PICkit 4 podczas programowania
- * 	ToDo ;-)
  * 	----------------------- branch master
  * 20191215 v.1.01
  *  - nowe ustawienia początkowe
@@ -17,6 +16,7 @@
  *  - zamiast 3,5 CW jest 5MHz
  *  ----------------------- branch PWR_SWR:
  * 20250515 v.1.1.0
+ * 	- dwa poziomy mocy zmieniane na jednym z wejść
  *  - obsługa Git z STMCubeIDE na workspace_CubeIDE
  *  - edycja również w STM32CubeIde!
  *  	- kompilacja i programowanie w MPLAB X IDE
@@ -24,10 +24,15 @@
  *      - sygnalizacja stanu na wyświetlaczu zamiast Ua
  *  - nowy branch dla poniższych założeń (PWR_SWR):
  *      - tylko pomiar mocy oraz SWR
- *          - wartości liczbowe PWR i SWR oraz dwie linijki: dla mocy i SWR
+ *          - wartości liczbowe PWR i SWR
+ *          - dwie linijki: dla mocy i SWR
  * 20250602 v.1.1.1
  * 	- opóźnienie 2s w zmianie kodu na wyjściu Band Data, żeby móc spokojnie wybrać pasmo i dopiero wtedy np. przełączanie przekaźników
  * 	 	i ewentulanie włączenie silników krokowych; opóźnienie zarówno przy ręcznej zmianie pasma jak i przy sterowaniu z Icom czy Band Data
+ * 20250610 v.1.1.2
+ * 	- poprawki w liczeniu i wyświetlaniu SWR
+ * 	- dwa zakresy mocy przełączane zworką na wejściu RE1 (nóżka 9)
+ *
  * ---------
  * zworki:
  *  Z1: RA4 ICOM port; nóżka 6
@@ -139,6 +144,8 @@ _6metr      // pasmo 50MHz lub 5 MHz w zależności od portu RD5 (Z3)(28))
 //unsigned char BandPins[]={0x00, 0x01, 0x02, 0x03,0x04};
 //#define EnableBand(x)   BandPort |= BandPins[x]
 #define EnableBand(x)   BandPort |= x;
+
+#define FORWARD_THRESHOLD 25	// poziom mocy padającej, od której wykonywany jest pomiar
 
 //.............................................................
 unsigned int U_forward;
@@ -266,7 +273,9 @@ void ADC_Init();
                                             //для 1500 вт равен примерно 10
 
 unsigned int MaxPower = 3000;
-unsigned int MaxSWR = 5000;
+unsigned int MaxPowerHigh = 3000;
+unsigned int MaxPowerLow = 1500;
+unsigned int MaxSWR = 5000;		// max SWR na linijce
 unsigned long MaxU = 3800;
 unsigned long MaxI = 2000;
 unsigned long MaxIs = 1000;
@@ -281,7 +290,7 @@ const char Mes1[] = "POWER=    W SWR= .  ";
 const char Mes2[] = "BAND    MHz         ";
 const char Mes3[] = "                    ";
 const char Mes4[] = "  ATU  controller";  
-const char Mes5[] = "        Ver 1.1.1";
+const char Mes5[] = "        Ver 1.1.2";
 const char Mes6[] = "    Warming tube  ";
 const char Mes7[] = "  Switching on  Ua  ";
 const char Mes8[] = "    in       sec    ";
@@ -382,8 +391,10 @@ void main(void) {
     ADC_Init();                   //Initialize ADC
     lcd_init();
 
+    TRISE1 = 1;		// RE1 input; potrzebny PULLUP?
     TRISE2 = 0;     // RE2 output
     RE2 = 0;        // port sygnalizacji przekroczenia SWR (powyżej 3))
+
     for(i=0;i<8;i++)
     {
     //загрузка в CG память ЖКИ символа из 3 полосок сверху
@@ -509,6 +520,14 @@ void main(void) {
     // loop - pętla główna
     while (1) 
     {
+    	if (RE1 == 1)	// zakres np. 3kW
+    	{
+    		MaxPower = MaxPowerHigh;
+    	}
+    	else	// zakres np. 1,5kW
+    	{
+    		MaxPower = MaxPowerLow;
+    	}
           PrintResults();
     #ifdef DEBUG_UART
           UART_Run();
@@ -836,9 +855,21 @@ void ADC_Init()
 //ADCSRA =_BV(ADEN)+_BV(ADPS2)+_BV(ADPS1);
 ////       АЦП вкл        f=8000000/64  
   ADCON0 = 0b10000001;               //Turn ON ADC and Clock Selection - ok
-  // ToDo ustawić zewnętrzne źródło REF
+  // ustawienie zewnętrznego źródła REF
   // VREF na AN3
-  ADCON1 = 0b10000001;               //All pins as Analog Input and setting Reference Voltages
+  //ADCON1 = 0b10000001;               //All pins as Analog Input and setting Reference Voltages
+  /*
+   * ToDo źle ustawiony zegar?
+   * zegar na 64 Tosc; przy zegarze 16MHz Tosc = 4us
+   * -> ADCON1:ADCS2 = 1; ADCON0:<ADCS1:ADCS0> = 10
+   * AN7 i AN8 - wejścia cyfrowe
+   * AN3 - wejście dla VREF
+   * pozostałe wejścia ustawione jako analogowe
+   * wykorzystane wejścia to:
+   * AN0 (nóżka 2) FWD (forward) padająca
+   * AN1 (nóżka 3) REV (reverse) odbita
+   */
+  ADCON1 = 0b11001010;
 }
 
 void PrintSwr(void) 
@@ -848,27 +879,37 @@ void PrintSwr(void)
         Lcd_Chr(0, 16, 0x20);
         Lcd_Chr(0, 18, 0x20);
         Lcd_Chr(0, 19, 0x20);
-        RE2 = 0;
         swr = 1000;
     }
     else
     {
-        if (U_forward <= U_reflect)
-            swr = 9990;
-        else
-            swr = (((unsigned long) (U_forward + U_reflect))*1000) / (U_forward - U_reflect); //Вычисляем КСВ
-        if (swr > 9990) swr = 9990; //Условие на ограничение 9.99
-        Lcd_Chr(0, 16, (swr / 1000) % 10 + 0x30); //разряд единиц КСВ
-        Lcd_Chr(0, 18, (swr / 100) % 10 + 0x30); //разряд десятых КСВ
-        Lcd_Chr(0, 19, (swr % 10) + 0x30); //разряд сотых х КСВ
-        if (swr > 3000)
-        {
-            RE2 = 1;
-        }
-        else 
-        {
-            RE2 = 0;
-        }
+    	if (U_forward >= FORWARD_THRESHOLD)
+    	{
+            if (U_forward <= U_reflect)
+                swr = 9990;
+            else
+                swr = (((unsigned long) (U_forward + U_reflect))*1000) / (U_forward - U_reflect); //Вычисляем КСВ
+            if (swr > 9990) swr = 9990; //Условие на ограничение 9.99
+            Lcd_Chr(0, 16, (swr / 1000) % 10 + 0x30); //разряд единиц КСВ
+            Lcd_Chr(0, 18, (swr / 100) % 10 + 0x30); //разряд десятых КСВ
+            Lcd_Chr(0, 19, (swr % 10) + 0x30); //разряд сотых х КСВ
+    	}
+    	else
+    	{
+            Lcd_Chr(0, 16, 0x20);
+            Lcd_Chr(0, 18, 0x20);
+            Lcd_Chr(0, 19, 0x20);
+    		swr = 1000;
+    	}
+    }
+    // sygnalizacja przekroczenia SWR 3 na wyjściu RE2/AN7 (nóżka 10)
+    if (swr > 3000)
+    {
+        RE2 = 1;
+    }
+    else
+    {
+        RE2 = 0;
     }
 }
 
@@ -902,8 +943,8 @@ void PrintPower()
     unsigned long PWRout;
     unsigned int K;
 
-    U_forward = ADC_READ(FEW);
-    U_reflect = ADC_READ(REW);
+    //U_forward = ADC_READ(FEW);
+    //U_reflect = ADC_READ(REW);
     K = (U_reflect << 10) / U_forward;
     if (U_forward > 960) U_forward = 960; //ограничение на счёт. соответствует КСВ=10
     //при проходящей мощности ~ в 3 раза меньше 
@@ -988,9 +1029,18 @@ void SWRScale()
 
     unsigned int SWRkoef = ((MaxSWR - 1000) / (3 * MaxSell));
     unsigned int length, sell;
-    unsigned char i = 0;
+    unsigned int i = 0;
     unsigned char ost;
-    length = (swr - 1000) / SWRkoef; //определение количества палок в грудуснике
+    unsigned int locSwr;
+    if (swr <= 5000)
+    {
+    	locSwr = swr;
+    }
+    else
+    {
+    	locSwr = 5000;
+    }
+    length = (locSwr - 1000) / SWRkoef; //определение количества палок в грудуснике
     sell = length / 3; //вычисление количества знакомест под 3-х палочный знак
     ost = length % 3; //остаток равен скан-коду(адресу) последнего выводимого символа из CGRAM
     if (sell >= 1)
