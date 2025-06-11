@@ -859,7 +859,6 @@ void ADC_Init()
   // VREF na AN3
   //ADCON1 = 0b10000001;               //All pins as Analog Input and setting Reference Voltages
   /*
-   * ToDo źle ustawiony zegar?
    * zegar na 64 Tosc; przy zegarze 16MHz Tosc = 4us
    * -> ADCON1:ADCS2 = 1; ADCON0:<ADCS1:ADCS0> = 10
    * AN7 i AN8 - wejścia cyfrowe
